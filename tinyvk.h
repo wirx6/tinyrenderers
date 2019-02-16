@@ -357,6 +357,7 @@ typedef struct tr_clear_value {
     };
 } tr_clear_value;
 
+/*
 typedef struct tr_platform_handle {
 #if defined(__linux__)
     xcb_connection_t*                   connection;
@@ -366,6 +367,9 @@ typedef struct tr_platform_handle {
     HWND                                hwnd;
 #endif
 } tr_platform_handle;
+*/
+
+typedef bool(*tr_create_surface_fn)(VkInstance instance, VkSurfaceKHR* surface, void* user_data);
 
 typedef struct tr_swapchain_settings {
     uint32_t                            image_count;
@@ -383,7 +387,9 @@ typedef struct tr_string_list {
 } tr_string_list;
 
 typedef struct tr_renderer_settings {
-    tr_platform_handle                  handle;
+    /*tr_platform_handle                  handle;*/
+    void*                               user_data;
+    tr_create_surface_fn                create_surface_fn;
     uint32_t                            width;
     uint32_t                            height;
     tr_swapchain_settings               swapchain;
@@ -3118,7 +3124,12 @@ void tr_internal_vk_create_instance(const char* app_name, tr_renderer* p_rendere
 void tr_internal_vk_create_surface(tr_renderer* p_renderer)
 {
     assert(VK_NULL_HANDLE != p_renderer->vk_instance);
+    assert(p_renderer->settings.create_surface_fn != NULL);
 
+    bool res = p_renderer->settings.create_surface_fn(p_renderer->vk_instance, &(p_renderer->vk_surface), p_renderer->settings.user_data);
+    assert(res == false);
+
+    /*
 #if defined(TINY_RENDERER_LINUX)
     TINY_RENDERER_DECLARE_ZERO(VkXcbSurfaceCreateInfoKHR, create_info);
     create_info.sType      = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR;
@@ -3138,6 +3149,7 @@ void tr_internal_vk_create_surface(tr_renderer* p_renderer)
     VkResult vk_res = vkCreateWin32SurfaceKHR(p_renderer->vk_instance, &create_info, NULL, &(p_renderer->vk_surface));
     assert(VK_SUCCESS == vk_res);
 #endif
+    */
 }
 
 void tr_internal_vk_create_device(tr_renderer* p_renderer)
