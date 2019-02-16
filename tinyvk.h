@@ -598,6 +598,7 @@ typedef bool(*tr_image_resize_float_fn)(uint32_t src_width, uint32_t src_height,
 // API functions
 tr_api_export void tr_create_renderer(const char* app_name, const tr_renderer_settings* p_settings, tr_renderer** pp_renderer);
 tr_api_export void tr_destroy_renderer(tr_renderer* p_renderer);
+tr_api_export void tr_resize_renderer(tr_renderer* p_renderer, float width, float height);
 
 tr_api_export void tr_create_fence(tr_renderer* p_renderer, tr_fence** pp_fence);
 tr_api_export void tr_destroy_fence(tr_renderer* p_renderer, tr_fence* p_fence);
@@ -1245,6 +1246,56 @@ void tr_destroy_renderer(tr_renderer* p_renderer)
     TINY_RENDERER_SAFE_FREE(s_tr_internal->renderer->graphics_queue);
     TINY_RENDERER_SAFE_FREE(s_tr_internal->renderer);
     TINY_RENDERER_SAFE_FREE(s_tr_internal);
+}
+
+void tr_resize_renderer(tr_renderer* p_renderer, float width, float height){
+    TINY_RENDERER_RENDERER_PTR_CHECK(p_renderer);
+
+    {
+        if (NULL != p_renderer->swapchain_render_targets) {
+            for (size_t i = 0; i < p_renderer->settings.swapchain.image_count; ++i) {
+                tr_destroy_render_target(p_renderer, p_renderer->swapchain_render_targets[i]);
+            }
+
+        }
+
+        if (NULL != p_renderer->image_acquired_fences) {
+            for (size_t i = 0; i < p_renderer->settings.swapchain.image_count; ++i) {
+                tr_destroy_fence(p_renderer, p_renderer->image_acquired_fences[i]);
+            }
+        }
+
+        if (NULL != p_renderer->image_acquired_semaphores) {
+            for (size_t i = 0; i < p_renderer->settings.swapchain.image_count; ++i) {
+                tr_destroy_semaphore(p_renderer, p_renderer->image_acquired_semaphores[i]);
+            }
+        }
+
+        if (NULL != p_renderer->render_complete_semaphores) {
+            for (size_t i = 0; i < p_renderer->settings.swapchain.image_count; ++i) {
+                tr_destroy_semaphore(p_renderer, p_renderer->render_complete_semaphores[i]);
+            }
+        }
+
+        tr_internal_vk_destroy_surface(p_renderer);
+    }
+
+    p_renderer->settings.width = width;
+    p_renderer->settings.height = height;
+
+    {
+        tr_internal_vk_create_surface(p_renderer);
+        tr_internal_vk_create_swapchain(p_renderer);
+        tr_internal_create_swapchain_renderpass(p_renderer);
+
+        tr_internal_vk_create_swapchain_renderpass(p_renderer);
+
+        for (uint32_t i = 0; i < p_renderer->settings.swapchain.image_count; ++i ) {
+            tr_create_fence(p_renderer, &(p_renderer->image_acquired_fences[i]));
+            tr_create_semaphore(p_renderer, &(p_renderer->image_acquired_semaphores[i]));
+            tr_create_semaphore(p_renderer, &(p_renderer->render_complete_semaphores[i]));
+        }
+    }
 }
 
 void tr_create_fence(tr_renderer *p_renderer, tr_fence** pp_fence)
@@ -3291,9 +3342,16 @@ void tr_internal_vk_create_swapchain(tr_renderer* p_renderer)
         vk_res = vkGetPhysicalDeviceSurfacePresentModesKHR(p_renderer->vk_active_gpu, p_renderer->vk_surface, &count, modes);
         assert(VK_SUCCESS == vk_res);
 
-        for (uint32_t i = 0; i < count; ++i) {
+        /*for (uint32_t i = 0; i < count; ++i) {
             if (VK_PRESENT_MODE_IMMEDIATE_KHR == modes[i]) {
                 present_mode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+                break;
+            }
+        }*/
+
+        for (uint32_t i = 0; i < count; ++i) {
+            if (VK_PRESENT_MODE_MAILBOX_KHR == modes[i]) {
+                present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
                 break;
             }
         }
@@ -3336,9 +3394,13 @@ void tr_internal_vk_create_swapchain(tr_renderer* p_renderer)
         create_info.compositeAlpha        = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         create_info.presentMode           = present_mode;
         create_info.clipped               = VK_TRUE;
-        create_info.oldSwapchain          = NULL;
+        create_info.oldSwapchain          = p_renderer->vk_swapchain;
         VkResult vk_res = vkCreateSwapchainKHR(p_renderer->vk_device, &create_info, NULL, &(p_renderer->vk_swapchain));
         assert(VK_SUCCESS == vk_res);
+
+        if(create_info.oldSwapchain != NULL){
+            vkDestroySwapchainKHR(p_renderer->vk_device, create_info.oldSwapchain, NULL);
+        }
 
         p_renderer->settings.swapchain.color_format = tr_util_from_vk_format(surface_format.format);
 
